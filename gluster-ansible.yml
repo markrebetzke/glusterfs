@@ -1,0 +1,88 @@
+---
+- hosts: all
+  tasks:
+  - name:
+    become: yes
+    apt_repository:
+        repo: 'ppa:gluster/glusterfs-5' # required. A source string for the repository.
+        state: present # not required. choices: absent;present. A source string state.
+        update_cache: yes # not required. Run the equivalent of C(apt-get update) when a change occurs.  Cache updates are run after making changes.
+        #mode: 0644 # not required. The octal mode for newly created files in sources.list.d
+        #codename: undefined # not required. Override the distribution codename to use for PPA repositories. Should usually only be set when working with a PPA on a non-Ubuntu target (e.g. Debian or Mint)
+        #validate_certs: yes # not required. If C(no), SSL certificates for the target repo will not be validated. This should only be used on personally controlled sites using self-signed certificates.
+        #filename: undefined # not required. Sets the name of the source list file in sources.list.d. Defaults to a file name based on the repository source url. The .list extension will be automatically added.
+
+  #- name: Ensure GlusterFS will reinstall if the PPA was just added
+  #  apt:
+  #    name:
+  #      - glusterfs-server
+  #      - glusterfs-client
+  #    state: absent
+  #  when: glusterfs_ppa_added.changed
+  #  tags: ['skip_ansible_lint']
+
+### Install dependencies
+  - name: Ensure GlusterFS is installed
+    become: true
+    apt:
+      name:
+        - software-properties-common
+        - glusterfs-server
+        - glusterfs-client
+        - glusterfs-common
+      state: present
+
+### Reload glusterd
+  - name: reload service glusterd, in all cases
+    become: true
+    systemd:
+      name: glusterd
+      state: started
+
+## Create gluter volume directory
+  - name: Create gluster volume directory
+    become: true
+    file:
+      path: /glusterfs/distributed
+      state: directory
+      mode: '0755'
+## Create gluster mnt location
+  - name: Create gluster mnt location
+    become: true
+    file:
+      path: /mnt/glusterfs
+      state: directory
+      mode: '0755'
+
+## Create gluster volume
+  - name: create gluster volume
+    become: true
+    gluster_volume:
+      state: present
+      force: yes
+      replicas: 2
+      name: Vol1
+      bricks: /glusterfs/distributed
+      cluster:
+        - k8s-master-1
+        - k8s-slave-1
+        - k8s-slave-2
+        - k8s-slave-3
+  - name: start gluster volume
+    become: true
+    gluster_volume:
+      state: started
+      name: Vol1
+  #- name: remove volume
+  #  become: true
+  #  gluster_volume:
+  #    state: absent
+  #    name: Vol1
+
+  - name: Mount the gluster volume
+    become: true
+    mount:
+      path: /mnt/kube_cluster
+      src: k8s-master-1:/Vol1
+      fstype: glusterfs
+      state: mounted
